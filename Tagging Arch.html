@@ -1244,7 +1244,685 @@
   </script>
 </body>
 </html>
-   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-const SUPABASE_URL = "hjnwflwoyoapwhcxteze";
-const SUPABASE_ANON_KEY = "sb_publishable_FbMJCgnXzFITRsiOuaXjvA_He_bf6C_";
+  <style>
+    /* CSS เดิมทั้งหมด */
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<script>
+  /* =========================================
+     1) ตั้งค่าการเชื่อมต่อ Supabase
+     ========================================= */
+  const SUPABASE_URL = "https://hjnwflwoyoapwhcxteze.supabase.co";
+  const SUPABASE_ANON_KEY = "PUT_YOUR_FULL_PUBLISHABLE_KEY_HERE";
+
+  const supabaseClient = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY
+  );
+
+  /* =========================================
+     2) ตัวแปรข้อมูลของหน้าเว็บ
+     ========================================= */
+  let people = [];
+  let works = [];
+  let selectedPerson = "all";
+  let selectedStatus = "ทั้งหมด";
+  let searchKeyword = "";
+
+  const thaiDate = new Intl.DateTimeFormat("th-TH", {
+    day: "numeric",
+    month: "short",
+    year: "numeric"
+  });
+
+  function createId(prefix) {
+    if (window.crypto && crypto.randomUUID) {
+      return `${prefix}-${crypto.randomUUID()}`;
+    }
+    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function escapeHtml(value = "") {
+    return String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  function getInitials(name = "") {
+    return String(name).replace(/^คุณ/, "").trim().charAt(0) || "A";
+  }
+
+  function formatDate(date) {
+    if (!date) return "—";
+
+    const safeDate = new Date(`${date}T00:00:00`);
+
+    if (Number.isNaN(safeDate.getTime())) {
+      return "—";
+    }
+
+    return thaiDate.format(safeDate);
+  }
+
+  function getStatusClass(status) {
+    const map = {
+      "ยังไม่เริ่ม": "status-new",
+      "กำลังดำเนินการ": "status-progress",
+      "รอตรวจ": "status-review",
+      "เสร็จสิ้น": "status-done",
+      "พักงาน/มีปัญหา": "status-problem"
+    };
+
+    return map[status] || "status-new";
+  }
+
+  function showError(message) {
+    console.error(message);
+    alert(`เกิดข้อผิดพลาด: ${message}`);
+  }
+
+  /* =========================================
+     3) ดึงข้อมูลจาก Supabase
+     ========================================= */
+  async function fetchAllData() {
+    const [peopleResponse, worksResponse] = await Promise.all([
+      supabaseClient
+        .from("people")
+        .select("*")
+        .order("name", { ascending: true }),
+
+      supabaseClient
+        .from("works")
+        .select("*")
+        .order("start_date", { ascending: false })
+    ]);
+
+    if (peopleResponse.error) {
+      throw peopleResponse.error;
+    }
+
+    if (worksResponse.error) {
+      throw worksResponse.error;
+    }
+
+    people = peopleResponse.data || [];
+    works = worksResponse.data || [];
+
+    renderAll();
+  }
+
+  /* =========================================
+     4) แสดงผลหน้าเว็บ
+     ========================================= */
+  function renderSummary() {
+    document.getElementById("totalCount").textContent = works.length;
+
+    document.getElementById("progressCount").textContent =
+      works.filter(work => work.status === "กำลังดำเนินการ").length;
+
+    document.getElementById("doneCount").textContent =
+      works.filter(work => work.status === "เสร็จสิ้น").length;
+
+    document.getElementById("problemCount").textContent =
+      works.filter(work => work.status === "พักงาน/มีปัญหา").length;
+
+    document.getElementById("heroActive").textContent =
+      works.filter(work => work.status !== "เสร็จสิ้น").length;
+  }
+
+  function renderTeam() {
+    const grid = document.getElementById("teamGrid");
+
+    if (!people.length) {
+      grid.innerHTML = `
+        <div class="empty-state">
+          ยังไม่มีรายชื่อผู้รับผิดชอบ กรุณากด “จัดการผู้รับผิดชอบ” เพื่อเพิ่มรายชื่อ
+        </div>
+      `;
+      return;
+    }
+
+    grid.innerHTML = people.map(person => {
+      const personWorks = works.filter(work => work.architect === person.id);
+      const activeWorks = personWorks.filter(
+        work => work.status !== "เสร็จสิ้น"
+      ).length;
+
+      const isActive = selectedPerson === person.id ? "active" : "";
+
+      return `
+        <div class="team-card ${isActive}">
+          <button
+            class="team-select"
+            type="button"
+            onclick="selectPerson('${person.id}')"
+          >
+            <span class="avatar">${escapeHtml(getInitials(person.name))}</span>
+            <span class="team-name">${escapeHtml(person.name)}</span>
+            <span class="team-count">
+              ${activeWorks} งานกำลังทำ · ${personWorks.length} ทั้งหมด
+            </span>
+          </button>
+
+          <button
+            class="team-remove"
+            type="button"
+            onclick="deletePerson('${person.id}')"
+          >
+            ลบรายชื่อ
+          </button>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function renderPersonManager() {
+    const list = document.getElementById("personManagerList");
+
+    if (!people.length) {
+      list.innerHTML = `<div class="empty-state">ไม่มีรายชื่อ</div>`;
+      return;
+    }
+
+    list.innerHTML = people.map(person => {
+      const count = works.filter(work => work.architect === person.id).length;
+
+      return `
+        <div class="person-manager-item">
+          <div class="person-manager-profile">
+            <span class="person-manager-avatar">
+              ${escapeHtml(getInitials(person.name))}
+            </span>
+            <div>
+              <div class="person-manager-name">${escapeHtml(person.name)}</div>
+              <div class="person-manager-count">รับผิดชอบ ${count} งาน</div>
+            </div>
+          </div>
+
+          <button
+            class="person-delete-btn"
+            type="button"
+            onclick="deletePerson('${person.id}')"
+          >
+            ลบ
+          </button>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function renderTable() {
+    const tableBody = document.getElementById("workTable");
+
+    const filteredWorks = works.filter(work => {
+      const matchPerson =
+        selectedPerson === "all" || work.architect === selectedPerson;
+
+      const matchStatus =
+        selectedStatus === "ทั้งหมด" || work.status === selectedStatus;
+
+      const person = people.find(item => item.id === work.architect);
+
+      const searchableText = [
+        work.project_code,
+        work.project_name,
+        work.task_name,
+        work.note,
+        person ? person.name : ""
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      const matchSearch = searchableText.includes(
+        searchKeyword.toLowerCase()
+      );
+
+      return matchPerson && matchStatus && matchSearch;
+    });
+
+    const selectedPersonData = people.find(
+      person => person.id === selectedPerson
+    );
+
+    document.getElementById("workTitle").textContent = selectedPersonData
+      ? `งานของ ${selectedPersonData.name}`
+      : "งานทั้งหมด";
+
+    if (!filteredWorks.length) {
+      tableBody.innerHTML = `
+        <tr>
+          <td colspan="9">
+            <div class="empty-state">ไม่พบรายการงาน</div>
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tableBody.innerHTML = filteredWorks.map(work => {
+      const person = people.find(item => item.id === work.architect);
+
+      return `
+        <tr>
+          <td>
+            <div class="project-code">
+              ${escapeHtml(work.project_code || "—")}
+            </div>
+            <div class="project-name">
+              ${escapeHtml(work.project_name || "—")}
+            </div>
+            <div class="task-detail">
+              ${escapeHtml(work.task_name || "—")}
+            </div>
+          </td>
+
+          <td>
+            <div class="person">
+              <span class="avatar mini-avatar">
+                ${person ? escapeHtml(getInitials(person.name)) : "—"}
+              </span>
+              ${
+                person
+                  ? escapeHtml(person.name)
+                  : `<span style="color:var(--red);">ยังไม่ระบุ</span>`
+              }
+            </div>
+          </td>
+
+          <td>
+            <span class="status ${getStatusClass(work.status)}">
+              ${escapeHtml(work.status || "ยังไม่เริ่ม")}
+            </span>
+          </td>
+
+          <td>${formatDate(work.start_date)}</td>
+          <td>${formatDate(work.due_date)}</td>
+          <td>${formatDate(work.completed_date)}</td>
+
+          <td>
+            <span class="attachment-count">เร็ว ๆ นี้</span>
+          </td>
+
+          <td>
+            <div class="note">${escapeHtml(work.note || "—")}</div>
+          </td>
+
+          <td>
+            <button
+              class="icon-button"
+              type="button"
+              onclick="openWorkModal('${work.id}')"
+            >
+              •••
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  function fillArchitectSelect(selectedId = "") {
+    const select = document.getElementById("architect");
+
+    select.innerHTML = `
+      <option value="">— เลือกผู้รับผิดชอบ —</option>
+      ${people.map(person => `
+        <option
+          value="${person.id}"
+          ${person.id === selectedId ? "selected" : ""}
+        >
+          ${escapeHtml(person.name)}
+        </option>
+      `).join("")}
+    `;
+  }
+
+  function renderAll() {
+    renderSummary();
+    renderTeam();
+    renderTable();
+    fillArchitectSelect();
+  }
+
+  /* =========================================
+     5) ตัวกรองและหน้าต่างเพิ่มข้อมูล
+     ========================================= */
+  function selectPerson(id) {
+    selectedPerson = selectedPerson === id ? "all" : id;
+    renderAll();
+
+    document.getElementById("works").scrollIntoView({
+      behavior: "smooth"
+    });
+  }
+
+  function clearFilters() {
+    selectedPerson = "all";
+    selectedStatus = "ทั้งหมด";
+    searchKeyword = "";
+
+    document.getElementById("globalSearch").value = "";
+
+    document.querySelectorAll(".filter-button").forEach(button => {
+      button.classList.toggle(
+        "active",
+        button.dataset.status === "ทั้งหมด"
+      );
+    });
+
+    renderAll();
+  }
+
+  function openPersonModal() {
+    document.getElementById("personForm").reset();
+    renderPersonManager();
+    document.getElementById("personModal").classList.add("show");
+  }
+
+  function openWorkModal(id = "") {
+    const form = document.getElementById("workForm");
+
+    form.reset();
+
+    document.getElementById("workId").value = "";
+    document.getElementById("workModalTitle").textContent = "เพิ่มงานใหม่";
+    document.getElementById("deleteWorkBtn").style.display = "none";
+
+    document.getElementById("startDate").value =
+      new Date().toISOString().slice(0, 10);
+
+    document.getElementById("attachmentList").innerHTML = `
+      <div style="color:var(--gray); font-size:11px;">
+        ระบบแนบไฟล์จะเพิ่มภายหลังด้วย Supabase Storage
+      </div>
+    `;
+
+    fillArchitectSelect(
+      selectedPerson !== "all" ? selectedPerson : ""
+    );
+
+    if (id) {
+      const work = works.find(item => item.id === id);
+
+      if (!work) return;
+
+      document.getElementById("workModalTitle").textContent =
+        "แก้ไขข้อมูลงาน";
+
+      document.getElementById("workId").value = work.id;
+      document.getElementById("projectCode").value = work.project_code || "";
+      document.getElementById("projectName").value = work.project_name || "";
+      document.getElementById("taskName").value = work.task_name || "";
+
+      fillArchitectSelect(work.architect || "");
+
+      document.getElementById("status").value = work.status || "";
+      document.getElementById("priority").value = work.priority || "";
+      document.getElementById("startDate").value = work.start_date || "";
+      document.getElementById("dueDate").value = work.due_date || "";
+      document.getElementById("completedDate").value =
+        work.completed_date || "";
+      document.getElementById("note").value = work.note || "";
+
+      document.getElementById("deleteWorkBtn").style.display = "block";
+    }
+
+    document.getElementById("workModal").classList.add("show");
+  }
+
+  function closeModal(id) {
+    document.getElementById(id).classList.remove("show");
+  }
+
+  /* =========================================
+     6) เพิ่ม / แก้ไข / ลบข้อมูล
+     ========================================= */
+  async function deleteWork() {
+    const id = document.getElementById("workId").value;
+
+    if (!id) return;
+
+    if (!confirm("ต้องการลบงานนี้ใช่หรือไม่?")) {
+      return;
+    }
+
+    const { error } = await supabaseClient
+      .from("works")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      showError(error.message);
+      return;
+    }
+
+    closeModal("workModal");
+    await loadData();
+  }
+
+  async function deletePerson(id) {
+    const person = people.find(item => item.id === id);
+
+    if (!person) return;
+
+    const confirmDelete = confirm(
+      `ต้องการลบรายชื่อ "${person.name}" ใช่หรือไม่?\n\nงานเดิมของบุคคลนี้จะเปลี่ยนเป็น “ยังไม่ระบุ”`
+    );
+
+    if (!confirmDelete) return;
+
+    const { error: updateError } = await supabaseClient
+      .from("works")
+      .update({ architect: null })
+      .eq("architect", id);
+
+    if (updateError) {
+      showError(updateError.message);
+      return;
+    }
+
+    const { error: deleteError } = await supabaseClient
+      .from("people")
+      .delete()
+      .eq("id", id);
+
+    if (deleteError) {
+      showError(deleteError.message);
+      return;
+    }
+
+    if (selectedPerson === id) {
+      selectedPerson = "all";
+    }
+
+    await loadData();
+    renderPersonManager();
+  }
+
+  document.getElementById("personForm").addEventListener(
+    "submit",
+    async event => {
+      event.preventDefault();
+
+      const input = document.getElementById("personName");
+      const name = input.value.trim();
+
+      if (!name) return;
+
+      const { error } = await supabaseClient
+        .from("people")
+        .insert([
+          {
+            id: createId("p"),
+            name
+          }
+        ]);
+
+      if (error) {
+        showError(error.message);
+        return;
+      }
+
+      input.value = "";
+      await loadData();
+      renderPersonManager();
+    }
+  );
+
+  document.getElementById("workForm").addEventListener(
+    "submit",
+    async event => {
+      event.preventDefault();
+
+      const status = document.getElementById("status").value;
+      const completedDate = document.getElementById("completedDate").value;
+
+      if (status === "เสร็จสิ้น" && !completedDate) {
+        alert("กรุณาระบุวันที่จบงานจริง");
+        document.getElementById("completedDate").focus();
+        return;
+      }
+
+      const existingId = document.getElementById("workId").value;
+      const workId = existingId || createId("w");
+
+      const workData = {
+        id: workId,
+        project_code: document.getElementById("projectCode").value.trim(),
+        project_name: document.getElementById("projectName").value.trim(),
+        task_name: document.getElementById("taskName").value.trim(),
+        architect: document.getElementById("architect").value || null,
+        status,
+        priority: document.getElementById("priority").value,
+        start_date: document.getElementById("startDate").value,
+        due_date: document.getElementById("dueDate").value,
+        completed_date: completedDate || null,
+        note: document.getElementById("note").value.trim()
+      };
+
+      let error;
+
+      if (existingId) {
+        const response = await supabaseClient
+          .from("works")
+          .update(workData)
+          .eq("id", existingId);
+
+        error = response.error;
+      } else {
+        const response = await supabaseClient
+          .from("works")
+          .insert([workData]);
+
+        error = response.error;
+      }
+
+      if (error) {
+        showError(error.message);
+        return;
+      }
+
+      closeModal("workModal");
+      await loadData();
+    }
+  );
+
+  document.getElementById("status").addEventListener(
+    "change",
+    event => {
+      const completedDate = document.getElementById("completedDate");
+
+      if (event.target.value === "เสร็จสิ้น" && !completedDate.value) {
+        completedDate.value = new Date().toISOString().slice(0, 10);
+      }
+    }
+  );
+
+  document.getElementById("globalSearch").addEventListener(
+    "input",
+    event => {
+      searchKeyword = event.target.value.trim();
+      renderTable();
+    }
+  );
+
+  document.querySelectorAll(".filter-button").forEach(button => {
+    button.addEventListener("click", () => {
+      selectedStatus = button.dataset.status;
+
+      document.querySelectorAll(".filter-button").forEach(item => {
+        item.classList.toggle("active", item === button);
+      });
+
+      renderTable();
+    });
+  });
+
+  document.querySelectorAll(".modal-backdrop").forEach(backdrop => {
+    backdrop.addEventListener("click", event => {
+      if (event.target === backdrop) {
+        backdrop.classList.remove("show");
+      }
+    });
+  });
+
+  /* =========================================
+     7) Real-time: เมื่อคนอื่นแก้ข้อมูล หน้าจอจะอัปเดต
+     ========================================= */
+  function setupRealtime() {
+    supabaseClient
+      .channel("alnex-workspace-changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "people"
+        },
+        () => loadData()
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "works"
+        },
+        () => loadData()
+      )
+      .subscribe();
+  }
+
+  async function loadData() {
+    try {
+      await fetchAllData();
+    } catch (error) {
+      console.error(error);
+
+      showError(
+        `${error.message || "ไม่สามารถเชื่อมต่อฐานข้อมูลได้"}\n\nตรวจสอบ Project URL, Publishable key และสิทธิ์ RLS ใน Supabase`
+      );
+    }
+  }
+
+  /* =========================================
+     8) เริ่มต้นระบบ
+     ========================================= */
+  async function start() {
+    await loadData();
+    setupRealtime();
+  }
+
+  start();
+</script>
+  <script>
+    /* โค้ด Supabase ก้อนใหญ่ที่ให้ไว้ด้านบน */
+  </script>
+</body>
+</html>
    
