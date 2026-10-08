@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Noto+Sans+Thai:wght@300;400;500;600&display=swap" rel="stylesheet">
 
-  <!-- โหลดไลบรารี Supabase จาก CDN -->
+  <!-- โหลดไลบรารี Supabase -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <style>
@@ -59,7 +59,6 @@
     }
 
     .logo-link { display: flex; align-items: center; }
-    .logo-link img { width: 135px; max-height: 40px; object-fit: contain; }
     .logo-fallback { display: block; font-family: "DM Sans", sans-serif; font-size: 24px; font-weight: 600; letter-spacing: 6px; }
 
     .main-nav { display: flex; align-items: center; gap: 32px; margin-left: auto; }
@@ -405,9 +404,6 @@
             <label for="note">หมายเหตุ / ปัญหาเพิ่มเติม <span class="optional">(ไม่บังคับ)</span></label>
             <textarea id="note" placeholder="ระบุปัญหาหน้างานหรือข้อควรระวัง..."></textarea>
           </div>
-          <div class="field-full" id="attachmentList" style="color:var(--gray); font-size:11px;">
-            ระบบเชื่อมต่อฐานข้อมูลบนคลาวด์
-          </div>
         </div>
 
         <div class="modal-actions">
@@ -445,7 +441,7 @@
   <!-- JavaScript เชื่อมต่อ Supabase และระบบ Realtime -->
   <script>
     const SUPABASE_URL = "https://hjnwflwoyoapwhcxteze.supabase.co";
-    const SUPABASE_ANON_KEY = "วาง_Publishable_Key_ของคุณที่นี่"; // แทนที่ด้วย Key จริงจาก Supabase
+    const SUPABASE_ANON_KEY = "YOUR_ANON_KEY_HERE"; // แทนที่ด้วย Publishable Key ของจริงจาก Supabase
 
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -663,7 +659,6 @@
       document.getElementById("workModalTitle").textContent = "เพิ่มงานใหม่";
       document.getElementById("deleteWorkBtn").style.display = "none";
       document.getElementById("startDate").value = new Date().toISOString().slice(0, 10);
-      document.getElementById("attachmentList").innerHTML = `<div style="color:var(--gray); font-size:11px;">ระบบจัดการไฟล์บนคลาวด์</div>`;
       fillArchitectSelect(selectedPerson !== "all" ? selectedPerson : "");
 
       if (id) {
